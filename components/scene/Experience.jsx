@@ -3,6 +3,7 @@
 import { Suspense, useRef } from "react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
+import { Environment, Lightformer } from "@react-three/drei";
 import CameraRig from "./CameraRig";
 import EnvironmentMood from "./EnvironmentMood";
 import ExteriorScene from "./ExteriorScene";
@@ -54,7 +55,9 @@ export default function Experience() {
               richness, but it fetches an HDR file from an external CDN and
               — placed outside any Suspense boundary — hung the whole
               render tree with nothing shown when that fetch didn't
-              resolve. Reverted: no external dependency.
+              resolve. Reverted then, no external dependency; see the
+              procedural <Environment> (Lightformers, no network fetch)
+              added below instead — that's the fix for the same goal.
               Intensities re-tuned for NoToneMapping (no highlight
               rolloff/protection above 1.0 now, unlike ACES). The previous
               pass (0.35/0.75) undershot and read too dark; this splits
@@ -68,9 +71,56 @@ export default function Experience() {
               initial value here is the "indoor" resting tone — EnvironmentMood
               below takes over animating it (and the two lights' intensity)
               during the exit phase, see its own comment. */}
-          <color attach="background" args={["#e9edf1"]} />
+          <color attach="background" args={["#FDF8F5"]} />
           <ambientLight ref={ambientLightRef} intensity={0.42} />
           <directionalLight ref={directionalLightRef} position={[5, 8, 5]} intensity={1.05} />
+          {/* Procedural studio IBL, built entirely from a solid backdrop +
+              Lightformer panels (plane lights) baked into a PMREM cubemap
+              once (resolution 256 is plenty for such low-frequency
+              lighting) — no HDR file, no network fetch, so it can't hang
+              the render tree the way the CDN preset above did.
+              background=false (the component default) on <Environment>
+              itself — this only feeds material.envMap-style IBL
+              (diffuse/specular fill + reflections), it doesn't replace the
+              main scene's own <color> background above.
+              The inner <color> below fills the VIRTUAL scene used to bake
+              that cubemap (not the visible one) with a MUTED, darker
+              version of the page's #FDF8F5 (same warm hue, ~45% of its
+              brightness) — using the full-brightness page color here
+              floods every surface with near-max irradiance from every
+              direction at once and, combined with the ambient/directional
+              lights below under NoToneMapping (no highlight rolloff),
+              clips the whole model to solid white. At reduced brightness
+              it still tints reflections/ambient fill warm instead of
+              cool/grey, without blowing out exposure. Lightformer
+              intensities were reduced to match for the same reason. */}
+          <Environment resolution={256}>
+            <color attach="background" args={["#726A62"]} />
+            <Lightformer
+              form="rect"
+              intensity={1.1}
+              color="#ffffff"
+              position={[0, 6, 0]}
+              rotation={[Math.PI / 2, 0, 0]}
+              scale={[10, 10, 1]}
+            />
+            <Lightformer
+              form="rect"
+              intensity={0.5}
+              color="#FDF8F5"
+              position={[-6, 3, 4]}
+              rotation={[0, Math.PI / 4, 0]}
+              scale={[6, 6, 1]}
+            />
+            <Lightformer
+              form="rect"
+              intensity={0.5}
+              color="#FDF8F5"
+              position={[6, 3, -4]}
+              rotation={[0, -Math.PI / 4, 0]}
+              scale={[6, 6, 1]}
+            />
+          </Environment>
           <EnvironmentMood
             ambientLightRef={ambientLightRef}
             directionalLightRef={directionalLightRef}

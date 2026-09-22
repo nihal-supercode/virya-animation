@@ -24,7 +24,7 @@ import { getExitT } from "@/lib/vehiclePaths";
 
 // Matches Experience.jsx's own fixed <color attach="background"> value —
 // kept as the resting/indoor tone this animates away from and back to.
-const INDOOR_BG = new THREE.Color("#e9edf1");
+const INDOOR_BG = new THREE.Color("#FDF8F5");
 // A cooler, barely-tinted tone — a hint of open sky rather than a strong
 // blue wash. Its own saturation was toned down (from an earlier, more
 // vivid "#cfe8fb") AND the blend toward it is capped well below full
