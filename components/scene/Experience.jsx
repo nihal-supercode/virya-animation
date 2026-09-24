@@ -36,7 +36,7 @@ export default function Experience() {
       <div style={{ position: "sticky", top: 0, height: "100vh" }}>
         <Canvas
           dpr={[1, 1.5]}
-          camera={{ position: [6.75, 4.85, 6.75], fov: 35, near: 0.1, far: 100 }}
+          camera={{ position: [6.75, 5.8, 6.75], fov: 35, near: 0.1, far: 100 }}
           // R3F defaults to ACES Filmic tone mapping, which deliberately
           // compresses/desaturates mid-tones for a cinematic look — that
           // was making the (correct, verified-against-source) material

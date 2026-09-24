@@ -1,37 +1,42 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useEffect, useMemo, useRef } from "react";
+import * as THREE from "three";
+import { useFrame, useThree } from "@react-three/fiber";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { useModel } from "@/lib/loaders";
 import { scrollStore } from "@/lib/scrollStore";
 import { getFadeOpacities } from "@/lib/sceneTransition";
+import { EXTERIOR_ROTATION_Y } from "@/lib/exteriorLayout";
 
-export const EXTERIOR_MODEL_URL = "/models/exterior/exterior-model.glb";
+// Draco-compressed copy of "Exterior (Darker than original).glb" (KeyShot
+// export, 195MB -> 21MB via `gltf-transform draco`). Same coordinate frame
+// and bounds as the previous exterior-model.glb, so exteriorLayout.js and
+// cameraPath.js still line up. It carries its own darker materials, so
+// they're used as-is rather than overridden.
+export const EXTERIOR_MODEL_URL = "/models/exterior/exterior-model-dark.glb";
 
-// The leftover per-building files (public/models/exterior/buildings/
-// B1-B5.glb, from an earlier pipeline run — currently unused elsewhere)
-// all share this exact tan/grey, "Paint Matte White #2" material
-// (baseColorFactor [0.6298, 0.5754, 0.5181, 1]) — confirmed by inspecting
-// their glb JSON directly. exterior-model.glb's own single material
-// ("Paint Matte White #3") is a genuine pure white [1,1,1,1] instead.
-// Since exterior-model.glb is the complete campus (the B-files only cover
-// 5 small building blocks — the large detailed structures have no
-// separate per-building export), this overrides its one material's color
-// to match the B-files' tan tone directly, rather than swapping in the
-// incomplete B-file set and losing most of the campus geometry.
-// Scaled up ~60% from that raw tone (same hue/ratio, just brighter) — the
-// raw value read too dark under this scene's lighting. The R channel is
-// now at its ceiling (clamped to 1) — pushing the multiplier much further
-// from here starts flattening the warm hue toward plain white rather than
-// making a warmer/lighter tan, since G and B still have headroom but R
-// doesn't.
-const TAN_COLOR = [0.6298472285270691, 0.575425386428833, 0.5180901885032654].map(
-  (c) => Math.min(1, c * 1.6)
-);
+// The model's materials are tuned for model-viewer's default look (a
+// bright studio "room" environment + neutral tone mapping). The shared
+// scene IBL in Experience.jsx is much dimmer (tuned for the old bright-tan
+// override), which made this model read noticeably darker than in
+// model-viewer. So the exterior gets its own RoomEnvironment envMap —
+// three's equivalent of model-viewer's neutral environment — set per
+// material, so the interior scenes keep the shared lighting untouched.
+const EXTERIOR_ENV_INTENSITY = 0.8;
 
 export default function ExteriorScene() {
   const { scene } = useModel(EXTERIOR_MODEL_URL);
+  const gl = useThree((s) => s.gl);
   const materials = useRef([]);
+
+  const envMap = useMemo(() => {
+    const pmrem = new THREE.PMREMGenerator(gl);
+    const texture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+    return texture;
+  }, [gl]);
+  useEffect(() => () => envMap.dispose(), [envMap]);
 
   // Clone materials once so we can animate opacity on our own copies
   // without mutating the cached/shared glTF materials (useGLTF caches by
@@ -43,12 +48,13 @@ export default function ExteriorScene() {
       if (obj.isMesh) {
         obj.material = obj.material.clone();
         obj.material.transparent = true;
-        obj.material.color.setRGB(...TAN_COLOR);
+        obj.material.envMap = envMap;
+        obj.material.envMapIntensity = EXTERIOR_ENV_INTENSITY;
         mats.push(obj.material);
       }
     });
     materials.current = mats;
-  }, [scene]);
+  }, [scene, envMap]);
 
   useFrame(() => {
     const { exterior } = getFadeOpacities(scrollStore.progress);
@@ -58,5 +64,5 @@ export default function ExteriorScene() {
     }
   });
 
-  return <primitive object={scene} />;
+  return <primitive object={scene} rotation={[0, EXTERIOR_ROTATION_Y, 0]} />;
 }
