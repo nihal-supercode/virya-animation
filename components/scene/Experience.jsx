@@ -1,12 +1,13 @@
 "use client";
 
-import { Suspense, useRef } from "react";
+import { Suspense, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { Environment, Lightformer } from "@react-three/drei";
 import CameraRig from "./CameraRig";
 import EnvironmentMood from "./EnvironmentMood";
-import ExteriorScene from "./ExteriorScene";
+import ExteriorScene, { DEFAULT_EXTERIOR_VARIANT } from "./ExteriorScene";
+import ExteriorVariantSwitcher from "./ExteriorVariantSwitcher";
 import GridBackground from "./GridBackground";
 import Interior1Scene from "./Interior1Scene";
 import NextFactoryScene from "./NextFactoryScene";
@@ -27,6 +28,7 @@ export default function Experience() {
   const wrapperRef = useScrollTimeline();
   const ambientLightRef = useRef(null);
   const directionalLightRef = useRef(null);
+  const [exteriorVariant, setExteriorVariant] = useState(DEFAULT_EXTERIOR_VARIANT);
 
   return (
     <div
@@ -127,7 +129,7 @@ export default function Experience() {
           />
           <GridBackground />
           <Suspense fallback={null}>
-            <ExteriorScene />
+            <ExteriorScene variant={exteriorVariant} />
           </Suspense>
           <Suspense fallback={null}>
             <Interior1Scene />
@@ -137,6 +139,10 @@ export default function Experience() {
           </Suspense>
           <CameraRig />
         </Canvas>
+        <ExteriorVariantSwitcher
+          value={exteriorVariant}
+          onChange={setExteriorVariant}
+        />
       </div>
     </div>
   );

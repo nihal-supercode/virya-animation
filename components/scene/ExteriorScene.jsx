@@ -1,41 +1,44 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { useModel } from "@/lib/loaders";
 import { scrollStore } from "@/lib/scrollStore";
 import { getFadeOpacities } from "@/lib/sceneTransition";
 import { EXTERIOR_ROTATION_Y } from "@/lib/exteriorLayout";
+import { applyModelViewerLook, createModelViewerEnvMap } from "@/lib/modelViewerEnvironment";
 
-// Draco-compressed copy of "Exterior (Darker than original).glb" (KeyShot
-// export, 195MB -> 21MB via `gltf-transform draco`). Same coordinate frame
-// and bounds as the previous exterior-model.glb, so exteriorLayout.js and
-// cameraPath.js still line up. It carries its own darker materials, so
-// they're used as-is rather than overridden.
-export const EXTERIOR_MODEL_URL = "/models/exterior/exterior-model-dark.glb";
+// Color variants of the same campus, switchable at runtime (see
+// ExteriorVariantSwitcher.jsx) to compare against the reference renders.
+// The three KeyShot exports ("Exterior (Darker/Lighter than original).glb"
+// and buildings/Exterior.glb, 195MB each) were Draco-compressed to ~21MB
+// via `gltf-transform draco`. All share the previous exterior-model.glb's
+// coordinate frame and bounds, so exteriorLayout.js and cameraPath.js
+// line up for every variant. Every variant is shown with its own
+// materials as-is — "previous" is the older single-material export, whose
+// own color is plain white.
+export const EXTERIOR_VARIANTS = [
+  { id: "dark", label: "Darker", url: "/models/exterior/exterior-model-dark.glb" },
+  { id: "original", label: "Original", url: "/models/exterior/exterior-model-original.glb" },
+  { id: "light", label: "Lighter", url: "/models/exterior/exterior-model-light.glb" },
+  { id: "previous", label: "Previous", url: "/models/exterior/exterior-model.glb" },
+];
+export const DEFAULT_EXTERIOR_VARIANT = "dark";
 
-// The model's materials are tuned for model-viewer's default look (a
-// bright studio "room" environment + neutral tone mapping). The shared
-// scene IBL in Experience.jsx is much dimmer (tuned for the old bright-tan
-// override), which made this model read noticeably darker than in
-// model-viewer. So the exterior gets its own RoomEnvironment envMap —
-// three's equivalent of model-viewer's neutral environment — set per
-// material, so the interior scenes keep the shared lighting untouched.
-const EXTERIOR_ENV_INTENSITY = 0.8;
+// Every variant is shown the way <model-viewer> shows it by default (its
+// generated "neutral" studio environment, neutral tone mapping at its
+// effective 1.3 exposure, no punctual lights) — see
+// lib/modelViewerEnvironment.js. Applied per material, so the interior
+// scenes keep the shared lighting/tone mapping in Experience.jsx.
 
-export default function ExteriorScene() {
-  const { scene } = useModel(EXTERIOR_MODEL_URL);
+export default function ExteriorScene({ variant = DEFAULT_EXTERIOR_VARIANT }) {
+  const { url } =
+    EXTERIOR_VARIANTS.find((v) => v.id === variant) ?? EXTERIOR_VARIANTS[0];
+  const { scene } = useModel(url);
   const gl = useThree((s) => s.gl);
   const materials = useRef([]);
 
-  const envMap = useMemo(() => {
-    const pmrem = new THREE.PMREMGenerator(gl);
-    const texture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
-    return texture;
-  }, [gl]);
+  const envMap = useMemo(() => createModelViewerEnvMap(gl), [gl]);
   useEffect(() => () => envMap.dispose(), [envMap]);
 
   // Clone materials once so we can animate opacity on our own copies
@@ -48,8 +51,7 @@ export default function ExteriorScene() {
       if (obj.isMesh) {
         obj.material = obj.material.clone();
         obj.material.transparent = true;
-        obj.material.envMap = envMap;
-        obj.material.envMapIntensity = EXTERIOR_ENV_INTENSITY;
+        applyModelViewerLook(obj.material, envMap);
         mats.push(obj.material);
       }
     });
