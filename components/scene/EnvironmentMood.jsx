@@ -18,7 +18,7 @@ import { getExitT } from "@/lib/vehiclePaths";
 // next factory's enclosed interior at the same moment.
 //
 // There's no real outdoor asset for the gap between the two buildings yet
-// (NextFactoryScene.jsx is a placeholder second interior, not a modeled
+// (NextFactoryScene.jsx is Factory Interior 2's interior, not a modeled
 // exterior) — this is deliberately achieved with lighting/fog/color alone
 // rather than geometry, so it drops in cleanly once a real asset exists.
 

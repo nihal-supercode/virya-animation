@@ -11,18 +11,15 @@ import ExteriorVariantSwitcher from "./ExteriorVariantSwitcher";
 import GridBackground from "./GridBackground";
 import Interior1Scene from "./Interior1Scene";
 import NextFactoryScene from "./NextFactoryScene";
+import ExitBuildingsScene from "./ExitBuildingsScene";
+import FinalScene from "./FinalScene";
 import { useScrollTimeline } from "@/hooks/useScrollTimeline";
+import { SCROLL_LENGTH_VH } from "@/lib/timeline";
 
-// 1565vh. Split per lib/timeline.js's breakpoints: 450vh for the exterior
-// camera travel, 270vh for the B2 -> Factory Interior 1 crossfade +
-// pull-back, 360vh for the AMR10/Forklift vehicle choreography, and 135vh
-// for the lift/rest at the top-down interior view — all UNCHANGED from
-// before, since that pacing was already confirmed to feel right. The final
-// 350vh EXIT phase has AMR10 physically drive out of Factory Interior 1
-// and into a second factory (see NextFactoryScene.jsx — a real second
-// instance of the Factory Interior 1 model, standing in until the real
-// next-factory assets arrive) while the camera follows.
-const SCROLL_LENGTH_VH = "1565vh";
+// Scroll length and how it's split between sections both come from
+// lib/timeline.js (each major section gets the same scroll distance, so the
+// whole journey plays at an even pace).
+const SCROLL_LENGTH = `${SCROLL_LENGTH_VH}vh`;
 
 export default function Experience() {
   const wrapperRef = useScrollTimeline();
@@ -33,7 +30,7 @@ export default function Experience() {
   return (
     <div
       ref={wrapperRef}
-      style={{ height: SCROLL_LENGTH_VH, position: "relative" }}
+      style={{ height: SCROLL_LENGTH, position: "relative" }}
     >
       <div style={{ position: "sticky", top: 0, height: "100vh" }}>
         <Canvas
@@ -136,6 +133,12 @@ export default function Experience() {
           </Suspense>
           <Suspense fallback={null}>
             <NextFactoryScene />
+          </Suspense>
+          <Suspense fallback={null}>
+            <ExitBuildingsScene />
+          </Suspense>
+          <Suspense fallback={null}>
+            <FinalScene />
           </Suspense>
           <CameraRig />
         </Canvas>

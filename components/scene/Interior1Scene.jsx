@@ -3,47 +3,65 @@
 import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useModel } from "@/lib/loaders";
+import AmrRadar from "./AmrRadar";
+import { getAmr50Rig } from "@/lib/amr50Paths";
 import { scrollStore } from "@/lib/scrollStore";
-import { getFadeOpacities } from "@/lib/sceneTransition";
+import {
+  getFadeOpacities,
+  getExitExteriorAmount,
+  getFactory2ExteriorAmount,
+  roomVisibility,
+} from "@/lib/sceneTransition";
 import {
   getMovementT,
-  getAmr10FullTransform,
+  getExitT,
+  getAmr10Rig,
   getForkliftTransform,
 } from "@/lib/vehiclePaths";
 
 export const INTERIOR_1_MODEL_URL = "/models/interior-1/factory-interior-1.glb";
 const FORKLIFT_MODEL_URL = "/models/interior-1/forklift.glb";
-const AMR10_TROLLEY_MODEL_URL = "/models/interior-1/amr10-with-trolley.glb";
+// AMR10 and its towed trolley as separate models so the trolley can
+// articulate on its hitch (see getAmr10Rig in lib/vehiclePaths.js).
+const AMR10_BODY_MODEL_URL = "/models/interior-1/amr10.glb";
+const AMR10_TROLLEY_MODEL_URL = "/models/interior-1/amr10-trolley.glb";
 
 // World-space position for the whole Factory Interior 1 group (room +
 // vehicles) — matches Building B2's center so the interior appears "in
 // place of" B2 as the crossfade completes (see cameraPath.js's B2_CENTER).
 export const POSITION = [-2.05, 0, -2.41];
 
-// Forklift and AMR10-with-Trolley were exported from the same source scene
-// as the room shell, so their geometry carries an in-room position baked
-// directly into its vertices rather than being centered at each file's own
-// origin (confirmed via `gltf-transform inspect`). Each is re-centered on
-// this value (see `negate` below) so it can be positioned/rotated as a
-// unit around its own visual center instead of around wherever its raw
-// vertices happen to sit.
+// The Forklift was exported from the same source scene as the room shell,
+// so its geometry carries an in-room position baked directly into its
+// vertices rather than being centered at its own origin (confirmed via
+// `gltf-transform inspect`). It's re-centered on this value (see `negate`
+// below) so it can be positioned/rotated as a unit around its own visual
+// center instead of around wherever its raw vertices happen to sit.
 const FORKLIFT_LOCAL_CENTER = [0.505505, 0, 3.058885];
-const AMR10_LOCAL_CENTER = [-2.554975, 0, -0.625155];
+
+// AMR10 body / trolley pivots in their models' shared source frame
+// (forward +Z): the body's centre, and the hitch pin the trolley swings on.
+// Each model sits under an extra +90° Y turn (AMR10_MODEL_ROTATION_Y) that
+// maps that +Z forward onto +X, the forward axis getAmr10Rig's rotationY
+// values assume (inherited from the old combined model).
+const AMR10_BODY_PIVOT = [0.0035, 0, -2.4305];
+const AMR10_HITCH_PIVOT = [0.0035, 0, -2.72];
+const AMR10_MODEL_ROTATION_Y = Math.PI / 2;
 
 function negate(v) {
   return [-v[0], -v[1], -v[2]];
 }
 
+// AMR10's radar: fades in with Factory Interior 1, and hands over to AMR50's
+// — fading out exactly as AMR50's fades in, once AMR50 activates.
+function amr10RadarOpacity(progress) {
+  return getFadeOpacities(progress).interior * (1 - getAmr50Rig(progress).radar);
+}
+
 // How quickly the rendered vehicle position catches up to its true
 // scroll-driven target, in 1/seconds (higher = snappier, lower = more lag).
-// Without this, position snapped directly to f(scrollProgress) every
-// frame, so a fast scroll advanced that function's input quickly and the
-// vehicle visibly jumped ahead in lockstep — "moves too fast" when
-// scrolling normally, fine only when scrolling slowly. Frame-rate-
-// independent exponential smoothing decouples how fast you scroll from
-// how fast the vehicle appears to move: the target can still jump ahead
-// instantly, but the rendered position chases it smoothly over real time
-// instead of snapping, capping the vehicle's max apparent speed.
+// Frame-rate-independent exponential smoothing, so a fast scroll doesn't
+// snap the vehicles straight to where the scroll says they should be.
 const FOLLOW_LAMBDA = 5;
 
 function damp3(current, target, lambda, delta) {
@@ -55,7 +73,12 @@ function damp3(current, target, lambda, delta) {
   ];
 }
 
-function useFadingModel(url) {
+// AMR10 (and its trolley) draw after the B4/B5 buildings (renderOrder 2), so
+// a building fading in or out around it never veils it — while a solid
+// building (which writes depth) still hides it inside.
+const AMR10_RENDER_ORDER = 3;
+
+function useFadingModel(url, renderOrder = 0) {
   const { scene } = useModel(url);
   const materials = useRef([]);
 
@@ -63,13 +86,14 @@ function useFadingModel(url) {
     const mats = [];
     scene.traverse((obj) => {
       if (obj.isMesh) {
+        obj.renderOrder = renderOrder;
         obj.material = obj.material.clone();
         obj.material.transparent = true;
         mats.push(obj.material);
       }
     });
     materials.current = mats;
-  }, [scene]);
+  }, [scene, renderOrder]);
 
   return { scene, materials };
 }
@@ -77,21 +101,28 @@ function useFadingModel(url) {
 export default function Interior1Scene() {
   const room = useFadingModel(INTERIOR_1_MODEL_URL);
   const forklift = useFadingModel(FORKLIFT_MODEL_URL);
-  const amr10Trolley = useFadingModel(AMR10_TROLLEY_MODEL_URL);
+  const amr10Body = useFadingModel(AMR10_BODY_MODEL_URL, AMR10_RENDER_ORDER);
+  const amr10Trolley = useFadingModel(AMR10_TROLLEY_MODEL_URL, AMR10_RENDER_ORDER);
 
   // Refs to the outer per-vehicle group (the one carrying the re-centered
   // model) — position/rotation are driven imperatively every frame from
   // lib/vehiclePaths.js rather than through React state, matching
   // CameraRig's approach (avoids a re-render on every scroll tick).
   const forkliftRig = useRef(null);
-  const amr10Rig = useRef(null);
+  const amr10BodyRig = useRef(null);
+  const amr10TrolleyRig = useRef(null);
 
   // Current RENDERED position for each vehicle — distinct from the raw
   // target lib/vehiclePaths.js computes from scroll progress. null until
   // first frame, so the very first render snaps straight to the target
   // instead of sliding in from an arbitrary starting point.
   const forkliftSmoothed = useRef(null);
-  const amr10Smoothed = useRef(null);
+  // AMR10 smooths its scroll PROGRESS rather than its output position:
+  // with an articulated rig (body + towed trolley, each with its own
+  // heading) smoothing positions alone let them lag behind rotations that
+  // had already jumped ahead, so the rig visibly slid sideways through
+  // turns. Smoothing the input keeps every part of the pose consistent.
+  const amr10Progress = useRef(null);
 
   useFrame((_state, delta) => {
     const progress = scrollStore.progress;
@@ -101,10 +132,24 @@ export default function Interior1Scene() {
     // it doesn't fade back out; AMR10 physically drives away from it
     // instead (see below).
     const { interior } = getFadeOpacities(progress);
-    for (const { scene, materials } of [room, forklift, amr10Trolley]) {
-      scene.visible = interior > 0.001;
+    // The room (and the Forklift parked in it) also crossfades out to B4
+    // while AMR10 crosses to Factory Interior 2, and back — see
+    // ExitBuildingsScene.jsx. AMR10 stays fully visible throughout.
+    const roomOpacity = interior * roomVisibility(getExitExteriorAmount(getExitT(progress)));
+    // Once AMR10 has parked its trolley in Factory Interior 2, the pair are
+    // part of that room: they fade out with it as it dissolves into B5 on
+    // AMR50's crossing to Factory 3 — B5's solid block doesn't reach the
+    // trolley area, so otherwise they'd be left standing outside it.
+    const amr10Opacity = interior * roomVisibility(getFactory2ExteriorAmount(progress));
+    for (const [{ scene, materials }, opacity] of [
+      [room, roomOpacity],
+      [forklift, roomOpacity],
+      [amr10Body, amr10Opacity],
+      [amr10Trolley, amr10Opacity],
+    ]) {
+      scene.visible = opacity > 0.001;
       for (const mat of materials.current) {
-        mat.opacity = interior;
+        mat.opacity = opacity;
       }
     }
 
@@ -122,17 +167,20 @@ export default function Interior1Scene() {
       forkliftRig.current.position.set(...forkliftSmoothed.current);
       forkliftRig.current.rotation.y = rotationY;
     }
-    if (amr10Rig.current) {
-      // Unlike the Forklift, AMR10 keeps going after MOVEMENT_END — it
-      // drives out of the room and into the next factory during
-      // TOP_VIEW_END..EXIT_END (see getAmr10FullTransform, which switches
-      // phases internally).
-      const { position, rotationY } = getAmr10FullTransform(progress);
-      amr10Smoothed.current = amr10Smoothed.current
-        ? damp3(amr10Smoothed.current, position, FOLLOW_LAMBDA, delta)
-        : position;
-      amr10Rig.current.position.set(...amr10Smoothed.current);
-      amr10Rig.current.rotation.y = rotationY;
+    if (amr10BodyRig.current && amr10TrolleyRig.current) {
+      // Unlike the Forklift, AMR10 keeps going after MOVEMENT_END — out of
+      // the room, into Factory Interior 2, and around its floor box (see
+      // getAmr10Rig, which switches phases internally).
+      amr10Progress.current =
+        amr10Progress.current === null
+          ? progress
+          : amr10Progress.current +
+            (progress - amr10Progress.current) * (1 - Math.exp(-FOLLOW_LAMBDA * delta));
+      const { body, trolley } = getAmr10Rig(amr10Progress.current);
+      amr10BodyRig.current.position.set(...body.position);
+      amr10BodyRig.current.rotation.y = body.rotationY;
+      amr10TrolleyRig.current.position.set(...trolley.position);
+      amr10TrolleyRig.current.rotation.y = trolley.rotationY;
     }
   });
 
@@ -147,8 +195,16 @@ export default function Interior1Scene() {
       <group ref={forkliftRig}>
         <primitive object={forklift.scene} position={negate(FORKLIFT_LOCAL_CENTER)} />
       </group>
-      <group ref={amr10Rig}>
-        <primitive object={amr10Trolley.scene} position={negate(AMR10_LOCAL_CENTER)} />
+      <group ref={amr10BodyRig}>
+        <AmrRadar getOpacity={amr10RadarOpacity} />
+        <group rotation={[0, AMR10_MODEL_ROTATION_Y, 0]}>
+          <primitive object={amr10Body.scene} position={negate(AMR10_BODY_PIVOT)} />
+        </group>
+      </group>
+      <group ref={amr10TrolleyRig}>
+        <group rotation={[0, AMR10_MODEL_ROTATION_Y, 0]}>
+          <primitive object={amr10Trolley.scene} position={negate(AMR10_HITCH_PIVOT)} />
+        </group>
       </group>
     </group>
   );

@@ -77,6 +77,99 @@ const MANIFEST = [
     ],
   },
   {
+    // Factory Interior 2 shell (the building AMR10 drives into). Source is
+    // the colored 123MB / ~9.4M-vertex KeyShot export living in the repo's
+    // public/models drop folder rather than SOURCE_ROOT, so it needs a much
+    // lower ratio than Interior 1 to land at a similar size (~2.2MB). Like
+    // Interior 1 it ships real normal maps, so --texture-compress applies.
+    src: join(
+      REPO_ROOT,
+      "public/models/3_Factory Interior 2/GLB with color/Factory Interior_2_with color.glb"
+    ),
+    dest: join(REPO_ROOT, "public/models/interior-2/factory-interior-2.glb"),
+    args: [
+      "optimize",
+      "--compress",
+      "draco",
+      "--simplify",
+      "true",
+      "--simplify-ratio",
+      "0.08",
+      "--simplify-error",
+      "0.01",
+      "--texture-compress",
+      "webp",
+    ],
+  },
+  {
+    // Final Scene interior (Factory 3's inside — building B2 turns into it
+    // as AMR50 arrives). Same aggressive profile as Factory Interior 2: a
+    // 151MB / ~11M-vertex source, landing ~3MB.
+    src: join(REPO_ROOT, "public/models/4_Interior Final Scene/GLB with Color/Final Scene.glb"),
+    dest: join(REPO_ROOT, "public/models/final/final-scene.glb"),
+    args: [
+      "optimize",
+      "--compress",
+      "draco",
+      "--simplify",
+      "true",
+      "--simplify-ratio",
+      "0.08",
+      "--simplify-error",
+      "0.01",
+      "--texture-compress",
+      "webp",
+    ],
+  },
+  ...[
+    ["AMR50_with color.glb", "amr50.glb"],
+    ["AMR50 Trolley_with color.glb", "amr50-trolley.glb"],
+  ].map(([srcName, destName]) => ({
+    // Extra Factory 2 props (a second AMR50, and an AMR50 trolley for the
+    // empty bay) — exported in the factory's own local frame, so they're
+    // rendered inside Factory 2's group with no offset (NextFactoryScene).
+    src: join(REPO_ROOT, "public/models/3_Factory Interior 2/GLB with color", srcName),
+    dest: join(REPO_ROOT, "public/models/interior-2", destName),
+    args: [
+      "optimize",
+      "--compress",
+      "draco",
+      "--simplify",
+      "true",
+      "--simplify-ratio",
+      "0.5",
+      "--simplify-error",
+      "0.001",
+      "--texture-compress",
+      "webp",
+    ],
+  })),
+  ...[
+    ["AMR10_with color.glb", "amr10.glb"],
+    ["AMR10 Trolley_with color.glb", "amr10-trolley.glb"],
+  ].map(([srcName, destName]) => ({
+    // AMR10 body and its towed trolley as SEPARATE models (the combined
+    // amr10-with-trolley.glb below can only turn as one rigid block), so
+    // the trolley can articulate behind AMR10 on its hitch — see
+    // lib/vehiclePaths.js's getAmr10Rig. Same "vehicle-hero" profile. Both
+    // share one source frame (forward +Z, AMR10 ahead of the trolley).
+    src: join(REPO_ROOT, "public/models/3_Factory Interior 2/GLB with color", srcName),
+    dest: join(REPO_ROOT, "public/models/interior-1", destName),
+    args: [
+      "optimize",
+      "--compress",
+      "draco",
+      "--simplify",
+      "true",
+      "--simplify-ratio",
+      "0.5",
+      "--simplify-error",
+      "0.001",
+      "--texture-compress",
+      "webp",
+    ],
+  })),
+  {
     // Forklift — "vehicle-hero" profile (gentle decimation, preserve
     // silhouette since the camera gets close to these). No textures.
     // NOTE: this file's geometry is NOT centered at its own origin — its

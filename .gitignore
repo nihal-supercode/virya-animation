@@ -35,3 +35,7 @@ next-env.d.ts
 # editor
 .vscode/
 .idea/
+
+# Raw source exports (up to 470 MB, over GitHub's 100 MB limit) — optimized copies live in public/models/interior-2 and public/models/final
+/public/models/3_Factory Interior 2/
+/public/models/4_Interior Final Scene/
