@@ -122,6 +122,30 @@ const MANIFEST = [
     ],
   },
   ...[
+    ["APT20 with pallet.glb", "apt20-moving.glb"],
+    ["AMR 10 with Trolley.glb", "amr10-moving.glb"],
+  ].map(([srcName, destName]) => ({
+    // The Final Scene's moving vehicles (the APT20 carrying a pallet, and an
+    // AMR10 towing a trolley) — exported in the Final Scene's own frame, so
+    // they sit inside FinalScene.jsx's group with no offset and slide along
+    // +x from there. Same "vehicle-hero" profile.
+    src: join(REPO_ROOT, "public/models/4_Interior Final Scene/GLB with Color", srcName),
+    dest: join(REPO_ROOT, "public/models/final", destName),
+    args: [
+      "optimize",
+      "--compress",
+      "draco",
+      "--simplify",
+      "true",
+      "--simplify-ratio",
+      "0.5",
+      "--simplify-error",
+      "0.001",
+      "--texture-compress",
+      "webp",
+    ],
+  })),
+  ...[
     ["AMR50_with color.glb", "amr50.glb"],
     ["AMR50 Trolley_with color.glb", "amr50-trolley.glb"],
   ].map(([srcName, destName]) => ({

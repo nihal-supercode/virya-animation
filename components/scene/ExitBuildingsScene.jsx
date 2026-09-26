@@ -7,10 +7,11 @@ import { scrollStore } from "@/lib/scrollStore";
 import {
   getExitExteriorAmount,
   getFactory2ExteriorAmount,
+  getFactory1ExteriorAmount,
   getFactory3InteriorAmount,
 } from "@/lib/sceneTransition";
 import { getExitT } from "@/lib/vehiclePaths";
-import { FACTORY3_NEAR_X } from "@/lib/amr50Paths";
+import { FACTORY3_NEAR_X, FINAL_SCENE_POSITION } from "@/lib/amr50Paths";
 import { applyModelViewerLook, createModelViewerEnvMap } from "@/lib/modelViewerEnvironment";
 
 // B4 and B5 stand in for Factory Interior 1 and Factory Interior 2 as seen
@@ -40,7 +41,7 @@ const BUILDINGS = [
     // Factory 1's far wall (toward Factory 2) is its min Z.
     gapSide: "min",
     sizeBoost: 1.6,
-    getOpacity: (p) => getExitExteriorAmount(getExitT(p)),
+    getOpacity: (p) => getFactory1ExteriorAmount(getExitT(p), p),
   },
   {
     url: "/models/exterior/buildings/B5.glb",
@@ -120,6 +121,34 @@ const BUILDINGS = [
     })(),
     // Then turns into the Final Scene interior as AMR50 arrives.
     getOpacity: (p) => getFactory2ExteriorAmount(p) * (1 - getFactory3InteriorAmount(p)),
+  },
+  {
+    // A dummy B2 beside Factory 3, so the Final Scene's closing shot (which
+    // looks across the room toward Factory 1) doesn't open onto an empty
+    // floor on its right. On Factory 3's +z side, set back behind where the
+    // camera's side view on AMR50 passes (z ~-6.5, looking the other way),
+    // so the camera never flies into or over it on screen. Turned three
+    // quarters (270° about Y: source (x, z) -> world (-z, x)), at the same
+    // scale as Factory 3's B2. ~8.9 x 10.7, ~1.6 tall. It appears with
+    // Factory 3's B2 and stays. B2 is used for Factory 3 too, so this
+    // renders its own copy.
+    key: "factory3-neighbour-b2",
+    url: "/models/exterior/buildings/B2.glb",
+    clone: true,
+    bboxMin: [-3.08058, 0.00355, -3.26876],
+    bboxMax: [-1.02311, 0.30948, -1.55451],
+    transform: (() => {
+      const scale = 5.2;
+      const nearX = FINAL_SCENE_POSITION[0] - 2.0; // world x of its -x end
+      const nearZ = FINAL_SCENE_POSITION[2] + 10.7; // world z of its side facing Factory 3
+      return {
+        scale,
+        rotationY: -Math.PI / 2,
+        // world x = pos.x - z * scale, world z = pos.z + x * scale
+        position: [nearX - 1.55451 * scale, -0.00355 * scale, nearZ + 3.08058 * scale],
+      };
+    })(),
+    getOpacity: getFactory2ExteriorAmount,
   },
 ];
 

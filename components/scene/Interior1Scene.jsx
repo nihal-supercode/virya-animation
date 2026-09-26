@@ -8,7 +8,7 @@ import { getAmr50Rig } from "@/lib/amr50Paths";
 import { scrollStore } from "@/lib/scrollStore";
 import {
   getFadeOpacities,
-  getExitExteriorAmount,
+  getFactory1ExteriorAmount,
   getFactory2ExteriorAmount,
   roomVisibility,
 } from "@/lib/sceneTransition";
@@ -133,9 +133,9 @@ export default function Interior1Scene() {
     // instead (see below).
     const { interior } = getFadeOpacities(progress);
     // The room (and the Forklift parked in it) also crossfades out to B4
-    // while AMR10 crosses to Factory Interior 2, and back — see
-    // ExitBuildingsScene.jsx. AMR10 stays fully visible throughout.
-    const roomOpacity = interior * roomVisibility(getExitExteriorAmount(getExitT(progress)));
+    // while AMR10 crosses to Factory Interior 2, and back, then to B4 again
+    // for good as AMR50 leaves Factory 2 — see ExitBuildingsScene.jsx.
+    const roomOpacity = interior * roomVisibility(getFactory1ExteriorAmount(getExitT(progress), progress));
     // Once AMR10 has parked its trolley in Factory Interior 2, the pair are
     // part of that room: they fade out with it as it dissolves into B5 on
     // AMR50's crossing to Factory 3 — B5's solid block doesn't reach the
