@@ -5,8 +5,10 @@ import { useFrame } from "@react-three/fiber";
 import { useModel } from "@/lib/loaders";
 import { scrollStore } from "@/lib/scrollStore";
 import { getFactory3InteriorAmount, F3_TO_INTERIOR_START } from "@/lib/sceneTransition";
-import { AMR50_EXIT_END, FINAL_PARK_END } from "@/lib/timeline";
+import { AMR50_EXIT_END } from "@/lib/timeline";
 import { FINAL_SCENE_POSITION, FINAL_SCENE_ROTATION_Y } from "@/lib/amr50Paths";
+import { getApt20Pose, APT20_PIVOT } from "@/lib/finalScenePaths";
+import AmrRadar from "./AmrRadar";
 
 // The Final Scene interior — Factory 3's inside. Building B2 (standing in
 // for Factory 3 from outside) crossfades into it as AMR50 arrives, the same
@@ -14,45 +16,42 @@ import { FINAL_SCENE_POSITION, FINAL_SCENE_ROTATION_Y } from "@/lib/amr50Paths";
 // drives on down its central aisle (see lib/amr50Paths.js for the placement:
 // that aisle lies on AMR50's line, its entrance at B2's wall). Its parked
 // vehicles (an AMR50, AMR10, APT20 and more) are part of the model and stay
-// as scenery; two more — an APT20 carrying a pallet and an AMR10 towing a
-// trolley — drive along +x beside AMR50 as it comes in, as the client's
-// reference shows. The AMR10 keeps going, out of the room past its +x end,
-// clearing the way for AMR50 to swing out and reverse into its parking bay
-// (amr50Paths.js's park beat). Optimized from public/models/4_Interior
-// Final Scene/GLB with Color/ (see scripts/optimize-models.mjs); all in the
-// room's frame.
+// as scenery; two more are at work, as the client's reference shows: an
+// AMR10 towing two carts, which drives along +x down its lane beside AMR50
+// as it comes in, and an APT20 carrying a pallet, which then drives on past
+// a parking bay beside the room's parked AMR50 and reverses into it
+// (lib/finalScenePaths.js). Like AMR50, both carry their radar rings.
+// Optimized from public/models/4_Interior Final Scene/GLB with Color/ (see
+// scripts/optimize-models.mjs); all in the room's frame.
 export const FINAL_SCENE_MODEL_URL = "/models/final/final-scene.glb";
 const APT20_MODEL_URL = "/models/final/apt20-moving.glb";
 const AMR10_MODEL_URL = "/models/final/amr10-moving.glb";
 
-// How far along +x each moving vehicle is from where its file places it,
-// from the start to the end of its drive, and over which scroll window
-// (see below). Kept inside the clear stretch of its lane (checked against
-// the room's geometry): the APT20's lane is open for x -1.42..2.04 and it
-// spans 0.04..0.79. The AMR10's runs the room's full length and it spans
-// 1.63..3.05, so it drives on out past the room's +x end (3.27), fading as
-// it leaves the floor (fadeOut, of its offset) — gone before AMR50 swings
-// out into its lane (z 0.30..0.60) to reverse into its bay.
-const AMR10_EXIT_END = AMR50_EXIT_END + 0.25 * (FINAL_PARK_END - AMR50_EXIT_END);
-const MOVERS = [
-  { url: APT20_MODEL_URL, from: -0.6, to: 1.0, end: AMR50_EXIT_END, stops: true },
-  { url: AMR10_MODEL_URL, from: -1.0, to: 1.8, end: AMR10_EXIT_END, fadeOut: [0.35, 1.6] },
-];
+// The APT20's radar rings centre on its body, 0.27 ahead of its pivot (its
+// load rollers).
+const APT20_RADAR_AHEAD = 0.27;
 
-// They drive as the room appears and AMR50 comes in, easing off from rest;
-// the APT20 eases to a stop as AMR50 does, the AMR10 drives straight on out.
-function moverT(progress, { end, stops }) {
-  const t = Math.min(1, Math.max(0, (progress - F3_TO_INTERIOR_START) / (end - F3_TO_INTERIOR_START)));
-  if (stops) return t * t * (3 - 2 * t);
-  // Eases in over the first ACCEL of it, then cruises (no braking).
-  const ACCEL = 0.4;
-  const v = 1 / (1 - ACCEL / 2);
-  return t < ACCEL ? (v * t * t) / (2 * ACCEL) : v * (t - ACCEL / 2);
+// How far along +x the AMR10 is from where its file places it, from the
+// start to the end of its drive — as the room appears and AMR50 comes in,
+// easing off and on. Its lane runs the room's full length. Its rings centre
+// on the AMR10 itself (the +x end of the train, x 2.51..3.05, z
+// 0.30..0.60).
+const AMR10_FROM = -1.0;
+const AMR10_TO = 0;
+const AMR10_RADAR_CENTRE = [2.78, 0, 0.4485];
+
+function amr10Offset(progress) {
+  const t = Math.min(1, Math.max(0, (progress - F3_TO_INTERIOR_START) / (AMR50_EXIT_END - F3_TO_INTERIOR_START)));
+  return AMR10_FROM + (AMR10_TO - AMR10_FROM) * t * t * (3 - 2 * t);
 }
 
-function fadeOut(offset, [start, end]) {
-  const x = Math.min(1, Math.max(0, (offset - start) / (end - start)));
-  return 1 - x * x * (3 - 2 * x);
+function negate(v) {
+  return [-v[0], -v[1], -v[2]];
+}
+
+// The rings show whenever the room does.
+function radarOpacity(progress) {
+  return getFactory3InteriorAmount(progress);
 }
 
 function useFadingModel(url) {
@@ -80,34 +79,43 @@ export default function FinalScene() {
   const room = useFadingModel(FINAL_SCENE_MODEL_URL);
   const apt20 = useFadingModel(APT20_MODEL_URL);
   const amr10 = useFadingModel(AMR10_MODEL_URL);
-  const movers = useRef([]);
+  const apt20Rig = useRef(null);
+  const amr10Rig = useRef(null);
 
   useFrame(() => {
     const progress = scrollStore.progress;
     const opacity = getFactory3InteriorAmount(progress);
-    [room, apt20, amr10].forEach(({ scene, materials }, i) => {
-      const mover = MOVERS[i - 1];
-      let vehicleOpacity = opacity;
-      if (mover) {
-        const offset = mover.from + (mover.to - mover.from) * moverT(progress, mover);
-        if (movers.current[i - 1]) movers.current[i - 1].position.x = offset;
-        if (mover.fadeOut) vehicleOpacity *= fadeOut(offset, mover.fadeOut);
-      }
-      scene.visible = vehicleOpacity > 0.001;
+    for (const { scene, materials } of [room, apt20, amr10]) {
+      scene.visible = opacity > 0.001;
       for (const mat of materials.current) {
-        mat.opacity = vehicleOpacity;
+        mat.opacity = opacity;
       }
-    });
+    }
+    if (apt20Rig.current) {
+      const { position, rotationY } = getApt20Pose(progress);
+      apt20Rig.current.position.set(...position);
+      apt20Rig.current.rotation.y = rotationY;
+    }
+    if (amr10Rig.current) amr10Rig.current.position.x = amr10Offset(progress);
   });
 
   return (
     <group position={FINAL_SCENE_POSITION} rotation={[0, FINAL_SCENE_ROTATION_Y, 0]}>
       <primitive object={room.scene} position={[0, 0, 0]} />
-      {[apt20, amr10].map(({ scene }, i) => (
-        <group key={MOVERS[i].url} ref={(g) => (movers.current[i] = g)}>
-          <primitive object={scene} position={[0, 0, 0]} />
+      {/* The APT20's group is posed by getApt20Pose, its model offset by
+          -pivot so it turns about its load rollers. */}
+      <group ref={apt20Rig}>
+        <group position={[APT20_RADAR_AHEAD, 0, 0]}>
+          <AmrRadar getOpacity={radarOpacity} />
         </group>
-      ))}
+        <primitive object={apt20.scene} position={negate(APT20_PIVOT)} />
+      </group>
+      <group ref={amr10Rig}>
+        <group position={AMR10_RADAR_CENTRE}>
+          <AmrRadar getOpacity={radarOpacity} />
+        </group>
+        <primitive object={amr10.scene} position={[0, 0, 0]} />
+      </group>
     </group>
   );
 }
