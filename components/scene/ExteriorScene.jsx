@@ -52,44 +52,90 @@ export const DEFAULT_EXTERIOR_VARIANT = "dark";
 const EXTERIOR_RENDER_ORDER = 2;
 const FADE_POLYGON_OFFSET = -1;
 
-// Loads the chosen variant with its own material clones (opacity is
-// animated per frame on these, not on the glTF cache's shared originals).
+/** The url of a built-in variant, by id. */
+export function getExteriorVariantUrl(id) {
+  return (EXTERIOR_VARIANTS.find((v) => v.id === id) ?? EXTERIOR_VARIANTS[0]).url;
+}
+
+// Loads the chosen model with its own material clones (opacity is animated
+// per frame on these, not on the glTF cache's shared originals). Clones are
+// grouped by the source material they came from — `groups`, one per
+// material in the file ({ key, name, baseColor, clones }) — so the colour
+// panel (ExteriorColorPanel.jsx) can recolour each one everywhere it's used.
 function useFadingExterior(url, envMap) {
   const { scene } = useModel(url);
   const materials = useRef([]);
+  const groups = useRef([]);
 
-  // Clone materials once so we can animate opacity on our own copies
+  // Clone materials so we can animate opacity (and recolour) our own copies
   // without mutating the cached/shared glTF materials (useGLTF caches by
   // URL — mutating the originals would leak into any other place this
-  // model is reused).
+  // model is reused). Always cloned from the file's own material (kept in
+  // userData), so re-running — switching back to a variant — starts clean.
   useEffect(() => {
     const mats = [];
+    const byBase = new Map();
     scene.traverse((obj) => {
       if (obj.isMesh) {
+        const base = (obj.userData.baseMaterial ??= obj.material);
+        if (obj.material !== base) obj.material.dispose();
         obj.renderOrder = EXTERIOR_RENDER_ORDER;
-        obj.material = obj.material.clone();
+        obj.material = base.clone();
         obj.material.transparent = true;
         applyModelViewerLook(obj.material, envMap);
         obj.material.polygonOffsetFactor = FADE_POLYGON_OFFSET;
         obj.material.polygonOffsetUnits = FADE_POLYGON_OFFSET;
         mats.push(obj.material);
+        if (!byBase.has(base)) {
+          byBase.set(base, {
+            key: base.uuid,
+            name: base.name || `Material ${byBase.size + 1}`,
+            baseColor: base.color ? `#${base.color.getHexString()}` : null,
+            clones: [],
+          });
+        }
+        byBase.get(base).clones.push(obj.material);
       }
     });
     materials.current = mats;
+    groups.current = [...byBase.values()].filter((g) => g.baseColor);
   }, [scene, envMap]);
 
-  return { scene, materials };
+  return { scene, materials, groups };
 }
 
-export default function ExteriorScene({ variant = DEFAULT_EXTERIOR_VARIANT }) {
-  const { url } =
-    EXTERIOR_VARIANTS.find((v) => v.id === variant) ?? EXTERIOR_VARIANTS[0];
+/**
+ * The exterior campus. `url` is the model to show — a built-in variant
+ * (getExteriorVariantUrl) or a designer's uploaded file (a blob: URL).
+ * `colors` ({ [material key]: "#rrggbb" }) overrides material colours;
+ * `onMaterials(url, materials)` reports the loaded model's materials.
+ */
+export default function ExteriorScene({
+  url = getExteriorVariantUrl(DEFAULT_EXTERIOR_VARIANT),
+  colors,
+  onMaterials,
+}) {
   const gl = useThree((s) => s.gl);
 
   const envMap = useMemo(() => createModelViewerEnvMap(gl), [gl]);
   useEffect(() => () => envMap.dispose(), [envMap]);
   const exterior = useFadingExterior(url, envMap);
   const placement = useRef(null);
+
+  // Runs after useFadingExterior's own effect (declared first), so the
+  // groups are ready.
+  const { scene, groups } = exterior;
+  useEffect(() => {
+    onMaterials?.(
+      url,
+      groups.current.map(({ key, name, baseColor }) => ({ key, name, baseColor }))
+    );
+  }, [url, scene, envMap, groups, onMaterials]);
+  useEffect(() => {
+    for (const { key, baseColor, clones } of groups.current) {
+      for (const mat of clones) mat.color.set(colors?.[key] ?? baseColor);
+    }
+  }, [colors, scene, envMap, groups]);
 
   // Mounted only once the model has loaded (Suspense), so the intro starts
   // with the campus there to show.

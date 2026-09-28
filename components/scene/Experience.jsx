@@ -1,14 +1,14 @@
 "use client";
 
-import { Suspense, useRef, useState } from "react";
+import { Component, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { Environment, Lightformer } from "@react-three/drei";
 import CameraRig from "./CameraRig";
 import EnvironmentMood from "./EnvironmentMood";
-import ExteriorScene, { DEFAULT_EXTERIOR_VARIANT } from "./ExteriorScene";
-import ExteriorVariantSwitcher from "./ExteriorVariantSwitcher";
-import StoryOverlay from "./StoryOverlay";
+import ExteriorScene, { DEFAULT_EXTERIOR_VARIANT, getExteriorVariantUrl } from "./ExteriorScene";
+import ExteriorUploadButton from "./ExteriorUploadButton";
+import ExteriorColorPanel from "./ExteriorColorPanel";
 import GridBackground from "./GridBackground";
 import Interior1Scene from "./Interior1Scene";
 import NextFactoryScene from "./NextFactoryScene";
@@ -17,6 +17,7 @@ import FinalScene from "./FinalScene";
 import { useScrollTimeline } from "@/hooks/useScrollTimeline";
 import { PAGE_SCROLL_VH } from "@/lib/timeline";
 import { getCameraState } from "@/lib/cameraPath";
+import { useModel } from "@/lib/loaders";
 
 // Scroll length and how it's split between sections both come from
 // lib/timeline.js (each major section gets the same scroll distance, so the
@@ -24,11 +25,74 @@ import { getCameraState } from "@/lib/cameraPath";
 const SCROLL_LENGTH = `${PAGE_SCROLL_VH}vh`;
 const OPENING = getCameraState(0);
 
+// Keeps a model that fails to load (e.g. a designer's upload that isn't a
+// valid .glb) from taking the whole canvas down: renders nothing instead and
+// reports it. Keyed by url in use, so picking another model resets it.
+class ModelErrorBoundary extends Component {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error) {
+    this.props.onError(error);
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
 export default function Experience() {
   const wrapperRef = useScrollTimeline();
   const ambientLightRef = useRef(null);
   const directionalLightRef = useRef(null);
-  const [exteriorVariant, setExteriorVariant] = useState(DEFAULT_EXTERIOR_VARIANT);
+  // Designer tools (ExteriorUploadButton / ExteriorColorPanel): an
+  // uploaded .glb ({ name, url } — a local blob: URL, never sent anywhere),
+  // the shown model's materials as reported once it's loaded, colour
+  // overrides for them, and a load failure.
+  const [customModel, setCustomModel] = useState(null);
+  const [loaded, setLoaded] = useState(null); // { url, materials }
+  const [failedUrl, setFailedUrl] = useState(null);
+  const [exteriorColors, setExteriorColors] = useState({});
+
+  // The default campus until a .glb is uploaded.
+  const exteriorUrl = customModel?.url ?? getExteriorVariantUrl(DEFAULT_EXTERIOR_VARIANT);
+  const colorStatus =
+    failedUrl === exteriorUrl ? "error" : loaded?.url === exteriorUrl ? "ready" : "loading";
+
+  const onMaterials = useCallback((url, materials) => setLoaded({ url, materials }), []);
+
+  const customUrl = useRef(null);
+  const uploadModel = useCallback((file) => {
+    // The previous upload is no longer reachable: drop it from the model
+    // cache and free its blob.
+    if (customUrl.current) {
+      useModel.clear(customUrl.current);
+      URL.revokeObjectURL(customUrl.current);
+    }
+    customUrl.current = URL.createObjectURL(file);
+    setCustomModel({ name: file.name, url: customUrl.current });
+    setExteriorColors({});
+  }, []);
+
+  // Dropping a .glb anywhere on the page uploads it too.
+  useEffect(() => {
+    const isFileDrag = (e) => e.dataTransfer?.types?.includes("Files");
+    const onDragOver = (e) => {
+      if (isFileDrag(e)) e.preventDefault();
+    };
+    const onDrop = (e) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      const file = [...e.dataTransfer.files].find((f) => /\.glb$/i.test(f.name));
+      if (file) uploadModel(file);
+    };
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [uploadModel]);
 
   return (
     <div
@@ -129,9 +193,15 @@ export default function Experience() {
             directionalLightRef={directionalLightRef}
           />
           <GridBackground />
-          <Suspense fallback={null}>
-            <ExteriorScene variant={exteriorVariant} />
-          </Suspense>
+          <ModelErrorBoundary key={exteriorUrl} onError={() => setFailedUrl(exteriorUrl)}>
+            <Suspense fallback={null}>
+              <ExteriorScene
+                url={exteriorUrl}
+                colors={exteriorColors}
+                onMaterials={onMaterials}
+              />
+            </Suspense>
+          </ModelErrorBoundary>
           <Suspense fallback={null}>
             <Interior1Scene />
           </Suspense>
@@ -146,11 +216,16 @@ export default function Experience() {
           </Suspense>
           <CameraRig />
         </Canvas>
-        <StoryOverlay />
-        <ExteriorVariantSwitcher
-          value={exteriorVariant}
-          onChange={setExteriorVariant}
-        />
+        <div className="absolute top-4 right-4 z-10 flex max-w-[calc(100%-2rem)] flex-col items-end gap-2">
+          <ExteriorUploadButton fileName={customModel?.name} onUpload={uploadModel} />
+          <ExteriorColorPanel
+            materials={loaded?.materials}
+            status={colorStatus}
+            colors={exteriorColors}
+            onChange={(key, color) => setExteriorColors((c) => ({ ...c, [key]: color }))}
+            onReset={() => setExteriorColors({})}
+          />
+        </div>
       </div>
     </div>
   );
