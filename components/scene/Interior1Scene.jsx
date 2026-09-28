@@ -6,16 +6,19 @@ import { useModel } from "@/lib/loaders";
 import AmrRadar from "./AmrRadar";
 import { getAmr50Rig } from "@/lib/amr50Paths";
 import { scrollStore } from "@/lib/scrollStore";
+import { FADE_END, TOP_VIEW_END, SCROLL_LENGTH_VH } from "@/lib/timeline";
 import {
   getFadeOpacities,
   getFactory1ExteriorAmount,
   getFactory2ExteriorAmount,
+  getOutroOpacities,
   roomVisibility,
 } from "@/lib/sceneTransition";
 import {
   getMovementT,
   getExitT,
   getAmr10Rig,
+  getAmr10Alert,
   getForkliftTransform,
 } from "@/lib/vehiclePaths";
 
@@ -54,8 +57,23 @@ function negate(v) {
 
 // AMR10's radar: fades in with Factory Interior 1, and hands over to AMR50's
 // — fading out exactly as AMR50's fades in, once AMR50 activates.
+// AMR10 waits outside the room, behind its near wall (vehiclePaths.js's
+// AMR10_START) — between the camera and the room as the camera closes in on
+// B4 — so it stays hidden until the room has fully replaced B4 (FADE_END),
+// then fades in over the next AMR10_APPEAR_VH, while it's still out of the
+// camera's frame. It only comes into view as it drives in.
+const AMR10_APPEAR_VH = 20;
+
+function amr10Visibility(progress) {
+  const appear = Math.min(
+    1,
+    Math.max(0, ((progress - FADE_END) * SCROLL_LENGTH_VH) / AMR10_APPEAR_VH)
+  );
+  return appear * getOutroOpacities(progress).others;
+}
+
 function amr10RadarOpacity(progress) {
-  return getFadeOpacities(progress).interior * (1 - getAmr50Rig(progress).radar);
+  return amr10Visibility(progress) * (1 - getAmr50Rig(progress).radar);
 }
 
 // How quickly the rendered vehicle position catches up to its true
@@ -73,36 +91,43 @@ function damp3(current, target, lambda, delta) {
   ];
 }
 
-// AMR10 (and its trolley) draw after the B4/B5 buildings (renderOrder 2), so
-// a building fading in or out around it never veils it — while a solid
-// building (which writes depth) still hides it inside.
+// From its exit on (TOP_VIEW_END), AMR10 (and its trolley) draw after the
+// B4/B5 buildings (renderOrder 2), so a building fading in or out around it
+// never veils it — while a solid building (which writes depth) still hides
+// it inside. Not before, though: as the room first appears inside B4, B4
+// dissolving over it veils the whole room, and AMR10 has to fade in with it,
+// under the same veil, not show through it on its own.
 const AMR10_RENDER_ORDER = 3;
 
-function useFadingModel(url, renderOrder = 0) {
+function useFadingModel(url) {
   const { scene } = useModel(url);
   const materials = useRef([]);
+  const meshes = useRef([]);
 
   useEffect(() => {
     const mats = [];
+    const found = [];
     scene.traverse((obj) => {
       if (obj.isMesh) {
-        obj.renderOrder = renderOrder;
+        obj.renderOrder = 0;
         obj.material = obj.material.clone();
         obj.material.transparent = true;
         mats.push(obj.material);
+        found.push(obj);
       }
     });
     materials.current = mats;
-  }, [scene, renderOrder]);
+    meshes.current = found;
+  }, [scene]);
 
-  return { scene, materials };
+  return { scene, materials, meshes };
 }
 
 export default function Interior1Scene() {
   const room = useFadingModel(INTERIOR_1_MODEL_URL);
   const forklift = useFadingModel(FORKLIFT_MODEL_URL);
-  const amr10Body = useFadingModel(AMR10_BODY_MODEL_URL, AMR10_RENDER_ORDER);
-  const amr10Trolley = useFadingModel(AMR10_TROLLEY_MODEL_URL, AMR10_RENDER_ORDER);
+  const amr10Body = useFadingModel(AMR10_BODY_MODEL_URL);
+  const amr10Trolley = useFadingModel(AMR10_TROLLEY_MODEL_URL);
 
   // Refs to the outer per-vehicle group (the one carrying the re-centered
   // model) — position/rotation are driven imperatively every frame from
@@ -131,7 +156,8 @@ export default function Interior1Scene() {
     // Building B2, then stays fully visible for the rest of the scene —
     // it doesn't fade back out; AMR10 physically drives away from it
     // instead (see below).
-    const { interior } = getFadeOpacities(progress);
+    // ...and all of it dissolves for good as the campus forms in the outro.
+    const interior = getFadeOpacities(progress).interior * getOutroOpacities(progress).others;
     // The room (and the Forklift parked in it) also crossfades out to B4
     // while AMR10 crosses to Factory Interior 2, and back, then to B4 again
     // for good as AMR50 leaves Factory 2 — see ExitBuildingsScene.jsx.
@@ -140,7 +166,11 @@ export default function Interior1Scene() {
     // part of that room: they fade out with it as it dissolves into B5 on
     // AMR50's crossing to Factory 3 — B5's solid block doesn't reach the
     // trolley area, so otherwise they'd be left standing outside it.
-    const amr10Opacity = interior * roomVisibility(getFactory2ExteriorAmount(progress));
+    const amr10Opacity = amr10Visibility(progress) * roomVisibility(getFactory2ExteriorAmount(progress));
+    const amr10Order = progress > TOP_VIEW_END ? AMR10_RENDER_ORDER : 0;
+    for (const mesh of [...amr10Body.meshes.current, ...amr10Trolley.meshes.current]) {
+      mesh.renderOrder = amr10Order;
+    }
     for (const [{ scene, materials }, opacity] of [
       [room, roomOpacity],
       [forklift, roomOpacity],
@@ -196,7 +226,7 @@ export default function Interior1Scene() {
         <primitive object={forklift.scene} position={negate(FORKLIFT_LOCAL_CENTER)} />
       </group>
       <group ref={amr10BodyRig}>
-        <AmrRadar getOpacity={amr10RadarOpacity} />
+        <AmrRadar getOpacity={amr10RadarOpacity} getAlert={getAmr10Alert} />
         <group rotation={[0, AMR10_MODEL_ROTATION_Y, 0]}>
           <primitive object={amr10Body.scene} position={negate(AMR10_BODY_PIVOT)} />
         </group>

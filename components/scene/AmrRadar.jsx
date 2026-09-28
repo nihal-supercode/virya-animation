@@ -60,11 +60,16 @@ function amr10RadarOpacity(progress) {
   return getFadeOpacities(progress).interior;
 }
 
+// How much brighter the rings get at full alert (see getAlert below).
+const ALERT_BOOST = 1;
+
 /**
  * Radar rings under an AMR. `getOpacity(progress)` (0-1) sets how visible
- * they are at a given scroll position — defaults to AMR10's.
+ * they are at a given scroll position — defaults to AMR10's. `getAlert`
+ * (0-1, optional) brightens them, up to (1 + ALERT_BOOST)x, while the AMR
+ * has detected something ahead.
  */
-export default function AmrRadar({ getOpacity = amr10RadarOpacity }) {
+export default function AmrRadar({ getOpacity = amr10RadarOpacity, getAlert }) {
   const texture = useMemo(() => createRingTexture(), []);
   const geometry = useMemo(() => new THREE.CircleGeometry(RADIUS, 64), []);
   const materials = useMemo(
@@ -95,6 +100,7 @@ export default function AmrRadar({ getOpacity = amr10RadarOpacity }) {
 
   useFrame((state) => {
     const visibility = getOpacity(scrollStore.progress);
+    const boost = 1 + ALERT_BOOST * (getAlert ? getAlert(scrollStore.progress) : 0);
     const time = state.clock.elapsedTime;
     WAVES.forEach((wave, i) => {
       const mesh = meshes.current[i];
@@ -113,7 +119,7 @@ export default function AmrRadar({ getOpacity = amr10RadarOpacity }) {
       const scale = 0.2 + 1.2 * x;
       mesh.visible = true;
       mesh.scale.set(scale, scale, 1);
-      materials[i].opacity = waveOpacity(x, wave) * visibility;
+      materials[i].opacity = Math.min(1, waveOpacity(x, wave) * visibility * boost);
     });
   });
 

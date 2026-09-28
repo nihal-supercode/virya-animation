@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import { useModel } from "@/lib/loaders";
 import { scrollStore } from "@/lib/scrollStore";
-import { getFactory3InteriorAmount, F3_TO_INTERIOR_START } from "@/lib/sceneTransition";
+import { getFactory3InteriorAmount, getOutroOpacities, F3_TO_INTERIOR_START } from "@/lib/sceneTransition";
 import { AMR50_EXIT_END, FINAL_PARK_END } from "@/lib/timeline";
 import { FINAL_SCENE_POSITION, FINAL_SCENE_ROTATION_Y } from "@/lib/amr50Paths";
 import { getApt20Pose, APT20_PIVOT, getAmr10G15Pose, AMR10G15_PIVOT, AMR10G15_BOX } from "@/lib/finalScenePaths";
@@ -19,7 +19,7 @@ import AmrRadar from "./AmrRadar";
 // vehicles (an AMR50, AMR10, APT20 and more) are part of the model and stay
 // as scenery; two more are at work, as the client's reference shows: an
 // AMR10 towing two carts, which drives along +x down its lane beside AMR50
-// as it comes in and on out of the room, and an APT20 carrying a pallet, which then drives on past
+// as it comes in and stops at the end of the room, and an APT20 carrying a pallet, which then drives on past
 // a parking bay beside the room's parked AMR50 and reverses into it. And the
 // room's own AMR10 G1.5 (lifted out of its model) drives off, turns left and
 // parks beside the room's AMR10 parked by the crates (their routes in
@@ -36,32 +36,34 @@ const APT20_RADAR_AHEAD = 0.27;
 
 // How far along +x the AMR10 is from where its file places it, from the
 // start to the end of its drive. Its lane runs the room's full length, and
-// it drives on down it out of the room's +x end (x 3.27; the train spans x
-// 1.63..3.05 as placed) and on out of the closing shot's frame — as the
-// room appears and AMR50 comes in, into the park beat. It eases off from
-// rest and doesn't brake: it's gone from view before it would stop. Its
-// rings centre on the AMR10 itself (the +x end of the train, x 2.51..3.05,
-// z 0.30..0.60).
+// it drives on down it to where its file places it, stopping at the end of
+// the room (the train spans x 1.63..3.05 as placed; the room ends at x 3.27)
+// — as the room appears and AMR50 comes in, into the park beat, easing off
+// and on. Its rings centre on the AMR10 itself (the +x end of the train, x
+// 2.51..3.05, z 0.30..0.60).
 const AMR10_FROM = -1.0;
-const AMR10_TO = 4.0;
+const AMR10_TO = 0;
 const AMR10_END = AMR50_EXIT_END + 0.4 * (FINAL_PARK_END - AMR50_EXIT_END);
-const AMR10_ACCEL = 0.3; // of its drive, easing in; then it cruises
 const AMR10_RADAR_CENTRE = [2.78, 0, 0.4485];
 
 function amr10Offset(progress) {
   const t = Math.min(1, Math.max(0, (progress - F3_TO_INTERIOR_START) / (AMR10_END - F3_TO_INTERIOR_START)));
-  const v = 1 / (1 - AMR10_ACCEL / 2);
-  const s = t < AMR10_ACCEL ? (v * t * t) / (2 * AMR10_ACCEL) : v * (t - AMR10_ACCEL / 2);
-  return AMR10_FROM + (AMR10_TO - AMR10_FROM) * s;
+  return AMR10_FROM + (AMR10_TO - AMR10_FROM) * t * t * (3 - 2 * t);
 }
 
 function negate(v) {
   return [-v[0], -v[1], -v[2]];
 }
 
+// The room (with everything in it) fades in as AMR50 arrives, and back out
+// into campus building B2 in the outro.
+function roomOpacity(progress) {
+  return getFactory3InteriorAmount(progress) * getOutroOpacities(progress).room;
+}
+
 // The rings show whenever the room does.
 function radarOpacity(progress) {
-  return getFactory3InteriorAmount(progress);
+  return roomOpacity(progress);
 }
 
 // Moves the triangles of `scene` lying wholly inside `box` (model frame)
@@ -149,13 +151,17 @@ export default function FinalScene() {
 
   useFrame(() => {
     const progress = scrollStore.progress;
-    const opacity = getFactory3InteriorAmount(progress);
+    const opacity = roomOpacity(progress);
     for (const { scene, materials } of [room, apt20, amr10]) {
       scene.visible = opacity > 0.001;
       for (const mat of materials.current) {
         mat.opacity = opacity;
       }
     }
+    // The G1.5 was lifted out of the room's scene into its own group, so
+    // hiding the room doesn't hide it: at opacity 0 it would still write
+    // depth, cutting its silhouette out of the grid from far across the site.
+    if (amr10G15Rig.current) amr10G15Rig.current.visible = opacity > 0.001;
     for (const [rig, getPose] of [
       [apt20Rig, getApt20Pose],
       [amr10G15Rig, getAmr10G15Pose],

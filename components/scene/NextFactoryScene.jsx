@@ -8,6 +8,7 @@ import { getExitT } from "@/lib/vehiclePaths";
 import {
   getExitExteriorAmount,
   getFactory2ExteriorAmount,
+  getOutroOpacities,
   roomVisibility,
 } from "@/lib/sceneTransition";
 import { getAmr50Rig, AMR50_PIVOT, AMR50_TROLLEY_PIVOT } from "@/lib/amr50Paths";
@@ -75,8 +76,10 @@ function negate(v) {
   return [-v[0], -v[1], -v[2]];
 }
 
+// AMR50 and its trolley end up parked in the Final Scene, so in the outro
+// they fade with that room (the Factory 2 room itself fades with the rest).
 function amr50RadarOpacity(progress) {
-  return getAmr50Rig(progress).radar;
+  return getAmr50Rig(progress).radar * getOutroOpacities(progress).room;
 }
 
 export default function NextFactoryScene() {
@@ -125,17 +128,20 @@ export default function NextFactoryScene() {
     const exitT = getExitT(progress);
     const opacity =
       easeInOutCubic(Math.min(1, exitT / APPEAR_END_T)) * roomVisibility(getExitExteriorAmount(exitT));
-    const roomOpacity = opacity * roomVisibility(getFactory2ExteriorAmount(progress));
+    // It dissolves for good as the campus forms in the outro.
+    const outro = getOutroOpacities(progress);
+    const roomOpacity = opacity * roomVisibility(getFactory2ExteriorAmount(progress)) * outro.others;
 
     scene.visible = roomOpacity > 0.001;
     for (const mat of materials.current) {
       mat.opacity = roomOpacity;
     }
-    const amr50Visible = opacity > 0.001;
+    const amr50Opacity = opacity * outro.room;
+    const amr50Visible = amr50Opacity > 0.001;
     amr50.visible = amr50Visible;
     amr50Trolley.visible = amr50Visible;
     for (const mat of amr50Materials.current) {
-      mat.opacity = opacity;
+      mat.opacity = amr50Opacity;
     }
 
     if (amr50Rig.current && amr50TrolleyRig.current) {

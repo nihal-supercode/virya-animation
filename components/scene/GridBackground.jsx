@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef } from "react";
+import { useFrame } from "@react-three/fiber";
 import { Grid } from "@react-three/drei";
 
 // TWO stacked ground-level grids, shared by the WHOLE scroll journey
@@ -28,7 +30,23 @@ import { Grid } from "@react-three/drei";
 const STATIC_Y = -0.03;
 const MOVING_Y = 0;
 
-const CELL_SIZE = 0.5;
+const CELL_SIZE = 0.75;
+
+// How far out the grid fades, at the camera's usual near/far range. The
+// campus is shown scaled up at either end of the journey (see
+// exteriorLayout.js), with the camera well further out, and CameraRig scales
+// the camera's far plane up with it (the camera state's depthScale). The
+// grid keeps the same cells throughout, so it never changes size — but seen
+// from that far, far more of its (fixed pixel width) lines are on screen, and
+// at full strength out to the horizon they turned the ground into a solid
+// orange shimmer. So the fade reaches out only part of the way (by the square
+// root of that scale) and the lines lighten a little (by its fourth root:
+// below a pixel wide, a line's coverage, so its alpha, scales with its
+// thickness), keeping the grid visible without flooding the frame.
+const FADE_DISTANCE = 55;
+const BASE_THICKNESS = 0.5;
+const OVERLAY_THICKNESS = 0.7;
+const BASE_FAR = 100; // CameraRig's unscaled far plane
 
 // Units/second the orange grid pattern would flow along world X — a
 // continuous, looping "conveyor" motion over the static base, independent
@@ -42,24 +60,41 @@ const CELL_SIZE = 0.5;
 const FLOW_SPEED = 0.15; // eslint-disable-line no-unused-vars -- parked animation, re-enable later
 
 export default function GridBackground() {
+  const base = useRef(null);
+  const overlay = useRef(null);
+
+  useFrame(({ camera }) => {
+    const k = Math.sqrt(camera.far / BASE_FAR);
+    for (const [grid, thickness] of [
+      [base.current, BASE_THICKNESS],
+      [overlay.current, OVERLAY_THICKNESS],
+    ]) {
+      if (!grid) continue;
+      grid.material.uniforms.fadeDistance.value = FADE_DISTANCE * k;
+      grid.material.uniforms.cellThickness.value = thickness / Math.sqrt(k);
+    }
+  });
+
   return (
     <>
       {/* Static base grid — light gray, never animated. */}
       <Grid
+        ref={base}
         position={[0, STATIC_Y, 0]}
         args={[10, 10]}
         infiniteGrid
         followCamera
         cellSize={CELL_SIZE}
-        cellThickness={0.5}
+        cellThickness={BASE_THICKNESS}
         cellColor="#c3cad1"
         sectionThickness={0}
-        fadeDistance={55}
+        fadeDistance={FADE_DISTANCE}
         fadeStrength={1.3}
       />
       {/* Orange overlay grid — same spacing as the base grid, static for now
           (flow animation parked, see FLOW_SPEED above). */}
       <Grid
+        ref={overlay}
         position={[0, MOVING_Y, 0]}
         args={[10, 10]}
         infiniteGrid
@@ -71,10 +106,10 @@ export default function GridBackground() {
         // section grid is off (sectionThickness=0 below), so a thin line at
         // a steeper fade read as barely-there orange rather than a clearly
         // colored line.
-        cellThickness={0.7}
+        cellThickness={OVERLAY_THICKNESS}
         cellColor="#f97316"
         sectionThickness={0}
-        fadeDistance={55}
+        fadeDistance={FADE_DISTANCE}
         fadeStrength={1.3}
       />
     </>

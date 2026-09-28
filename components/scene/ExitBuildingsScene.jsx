@@ -9,9 +9,11 @@ import {
   getFactory2ExteriorAmount,
   getFactory1ExteriorAmount,
   getFactory3InteriorAmount,
+  getOutroOpacities,
 } from "@/lib/sceneTransition";
 import { getExitT } from "@/lib/vehiclePaths";
-import { FACTORY3_NEAR_X, FINAL_SCENE_POSITION } from "@/lib/amr50Paths";
+import { FACTORY3_B2, FINAL_SCENE_POSITION } from "@/lib/amr50Paths";
+import { EXTERIOR_ENTRY_PLACEMENT, EXTERIOR_ROTATION_Y } from "@/lib/exteriorLayout";
 import { applyModelViewerLook, createModelViewerEnvMap } from "@/lib/modelViewerEnvironment";
 
 // B4 and B5 stand in for Factory Interior 1 and Factory Interior 2 as seen
@@ -33,14 +35,18 @@ import { applyModelViewerLook, createModelViewerEnvMap } from "@/lib/modelViewer
 // Interior1Scene.jsx and NextFactoryScene.jsx.
 const BUILDINGS = [
   {
+    // Factory 1 from outside: the same B4 it was entered by at the start,
+    // exactly where the campus had it (exteriorLayout.js's
+    // EXTERIOR_ENTRY_PLACEMENT; B4.glb shares the campus model's frame).
+    // Turned with the campus, it runs ~10.9 along x and ~6.8 along z, centred
+    // on the 6.4 x 6.4 factory: its far wall (toward Factory 2) sits ~0.2
+    // beyond the factory's, so AMR10 drives out through it.
     url: "/models/exterior/buildings/B4.glb",
-    bboxMin: [1.16836, 0.00355, -3.15265],
-    bboxMax: [2.32499, 0.36365, -1.30505],
-    factoryCenter: [-2.04774, -3.035245],
-    factoryDepthZ: 6.40019,
-    // Factory 1's far wall (toward Factory 2) is its min Z.
-    gapSide: "min",
-    sizeBoost: 1.6,
+    transform: {
+      scale: EXTERIOR_ENTRY_PLACEMENT.scale,
+      rotationY: EXTERIOR_ROTATION_Y,
+      position: EXTERIOR_ENTRY_PLACEMENT.position,
+    },
     getOpacity: (p) => getFactory1ExteriorAmount(getExitT(p), p),
   },
   {
@@ -91,34 +97,15 @@ const BUILDINGS = [
     getOpacity: getFactory2ExteriorAmount,
   },
   {
-    // Factory 3 (there's no interior model for it) — the building AMR50
-    // tows the AMR50 trolley across to — shown as B2. Set on AMR50's straight
-    // exit line from Factory 2, turned a quarter (+90° about Y: source
-    // (x, z) -> world (z, -x)) so its source max-z side faces Factory 2, at
-    // FACTORY3_NEAR_X. That side is irregular (recesses, a courtyard), so
-    // rather than centring B2 on AMR50's line it's placed so the line meets
-    // a stretch (~1m wide) where the wall is right on that face — AMR50
-    // drives up to an actual wall instead of stopping short of a recess.
-    // Scaled to read alongside the other buildings: ~9.4 across AMR50's
-    // path, ~8.1 along it, ~1.6 tall.
+    // Factory 3 (there's no interior model for it), the building AMR50
+    // tows the AMR50 trolley across to, shown as B2. Its placement is in
+    // amr50Paths.js (FACTORY3_B2), beside AMR50's line; the outro sets the
+    // whole campus down with the same transform, so its own B2 lands here.
     key: "factory3-b2",
     url: "/models/exterior/buildings/B2.glb",
     bboxMin: [-3.08058, 0.00355, -3.26876],
     bboxMax: [-1.02311, 0.30948, -1.55451],
-    transform: (() => {
-      const scale = 5.2;
-      // Source extents of its parts taller than ~0.12.
-      const faceZ = -1.555; // faces Factory 2 once turned (world x = pos.x + z * scale)
-      const wallStretchX = -2.323; // source x of that flush wall stretch, put on the line (world z = pos.z - x * scale)
-      // Factory 2 model-local -> world: x = -1.5515 - lx, z = -16.1596 - lz.
-      const nearWallX = -1.5515 - FACTORY3_NEAR_X;
-      const lineZ = -16.1596 - 0.018; // AMR50's drive line
-      return {
-        scale,
-        rotationY: Math.PI / 2,
-        position: [nearWallX - faceZ * scale, -0.00355 * scale, lineZ + wallStretchX * scale],
-      };
-    })(),
+    transform: FACTORY3_B2,
     // Then turns into the Final Scene interior as AMR50 arrives.
     getOpacity: (p) => getFactory2ExteriorAmount(p) * (1 - getFactory3InteriorAmount(p)),
   },
@@ -213,7 +200,11 @@ function FadingBuilding({ building, envMap }) {
   }, [scene, envMap]);
 
   useFrame(() => {
-    const opacity = building.getOpacity(scrollStore.progress);
+    // None of these are part of the campus the outro returns to: they all
+    // dissolve away as it forms (Factory 3's B2 is already hidden inside the
+    // Final Scene by then, and the campus brings its own).
+    const progress = scrollStore.progress;
+    const opacity = building.getOpacity(progress) * getOutroOpacities(progress).others;
     scene.visible = opacity > 0.001;
     const solid = opacity > 0.999;
     for (const mat of materials.current) {

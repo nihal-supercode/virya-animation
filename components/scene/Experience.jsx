@@ -8,18 +8,21 @@ import CameraRig from "./CameraRig";
 import EnvironmentMood from "./EnvironmentMood";
 import ExteriorScene, { DEFAULT_EXTERIOR_VARIANT } from "./ExteriorScene";
 import ExteriorVariantSwitcher from "./ExteriorVariantSwitcher";
+import StoryOverlay from "./StoryOverlay";
 import GridBackground from "./GridBackground";
 import Interior1Scene from "./Interior1Scene";
 import NextFactoryScene from "./NextFactoryScene";
 import ExitBuildingsScene from "./ExitBuildingsScene";
 import FinalScene from "./FinalScene";
 import { useScrollTimeline } from "@/hooks/useScrollTimeline";
-import { SCROLL_LENGTH_VH } from "@/lib/timeline";
+import { PAGE_SCROLL_VH } from "@/lib/timeline";
+import { getCameraState } from "@/lib/cameraPath";
 
 // Scroll length and how it's split between sections both come from
 // lib/timeline.js (each major section gets the same scroll distance, so the
 // whole journey plays at an even pace).
-const SCROLL_LENGTH = `${SCROLL_LENGTH_VH}vh`;
+const SCROLL_LENGTH = `${PAGE_SCROLL_VH}vh`;
+const OPENING = getCameraState(0);
 
 export default function Experience() {
   const wrapperRef = useScrollTimeline();
@@ -35,7 +38,8 @@ export default function Experience() {
       <div style={{ position: "sticky", top: 0, height: "100vh" }}>
         <Canvas
           dpr={[1, 1.5]}
-          camera={{ position: [7.45, 5.8, 7.45], fov: 35, near: 0.1, far: 100 }}
+          // The opening shot (CameraRig takes over from the first frame).
+          camera={{ position: OPENING.position, fov: OPENING.fov, near: 0.1, far: 100 }}
           // R3F defaults to ACES Filmic tone mapping, which deliberately
           // compresses/desaturates mid-tones for a cinematic look — that
           // was making the (correct, verified-against-source) material
@@ -142,6 +146,7 @@ export default function Experience() {
           </Suspense>
           <CameraRig />
         </Canvas>
+        <StoryOverlay />
         <ExteriorVariantSwitcher
           value={exteriorVariant}
           onChange={setExteriorVariant}

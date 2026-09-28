@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { scrollStore } from "@/lib/scrollStore";
 import { getCameraState } from "@/lib/cameraPath";
 import { TOP_VIEW_END } from "@/lib/timeline";
+import { INTRO_DURATION, getIntroStep } from "@/lib/introStore";
 
 // Same rate as Interior1Scene's FOLLOW_LAMBDA. During the exit phase the
 // camera orbits AMR10's scroll-driven position, but AMR10 itself is RENDERED
@@ -14,6 +15,50 @@ import { TOP_VIEW_END } from "@/lib/timeline";
 // Smoothing the camera with the identical filter keeps them locked together
 // and softens the view swings too.
 const EXIT_FOLLOW_LAMBDA = 5;
+
+// Experience.jsx's Canvas camera near/far, scaled by the state's depthScale
+// (the outro's closing shot sits much further out than anything else).
+const NEAR = 0.1;
+const FAR = 100;
+
+// Load-in sweep (see introStore.js): the camera starts swung round the
+// opening shot's look-at point by INTRO_ORBIT, INTRO_DISTANCE times further
+// out and INTRO_RISE higher, and eases in to it. Applied as an offset on top
+// of the scroll-driven state that shrinks to nothing, so scrolling during
+// the sweep just blends into the path.
+const INTRO_ORBIT = -0.5; // radians about the vertical axis
+const INTRO_DISTANCE = 1.35;
+const INTRO_RISE = 0.25; // extra height, as a fraction of the look-at distance
+
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function withIntroSweep(state) {
+  const remaining = 1 - easeInOutCubic(getIntroStep(0, INTRO_DURATION));
+  if (remaining <= 0) return state;
+  const [px, py, pz] = state.position;
+  const [lx, ly, lz] = state.lookAt;
+  const dx = px - lx;
+  const dy = py - ly;
+  const dz = pz - lz;
+  const angle = INTRO_ORBIT * remaining;
+  const scale = 1 + (INTRO_DISTANCE - 1) * remaining;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const dist = Math.hypot(dx, dy, dz);
+  return {
+    ...state,
+    // The opening shot already sits ~65 out against a far plane of 100, so
+    // the depth range widens with the pull-back to keep the campus in it.
+    depthScale: (state.depthScale ?? 1) * (1 + remaining),
+    position: [
+      lx + (dx * cos + dz * sin) * scale,
+      ly + dy * scale + INTRO_RISE * dist * remaining,
+      lz + (-dx * sin + dz * cos) * scale,
+    ],
+  };
+}
 
 function dampArray(current, target, f) {
   for (let i = 0; i < current.length; i++) {
@@ -35,7 +80,7 @@ export default function CameraRig() {
 
   useFrame((_state, delta) => {
     const progress = scrollStore.progress;
-    const target = getCameraState(progress);
+    const target = withIntroSweep(getCameraState(progress));
 
     // Smoothing only applies in the exit phase — earlier phases stay
     // snapped to the scroll exactly as tuned. When scrolling back out of the
@@ -78,8 +123,12 @@ export default function CameraRig() {
     lookAtTarget.current.set(lookAt[0], lookAt[1], lookAt[2]);
     camera.lookAt(lookAtTarget.current);
 
-    if (camera.fov !== fov) {
+    // Applied unsmoothed: the near/far planes don't move the image.
+    const depthScale = target.depthScale ?? 1;
+    if (camera.fov !== fov || camera.far !== FAR * depthScale) {
       camera.fov = fov;
+      camera.near = NEAR * depthScale;
+      camera.far = FAR * depthScale;
       camera.updateProjectionMatrix();
     }
   });
