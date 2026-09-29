@@ -101,7 +101,7 @@ export default function ExteriorScene({ variant = DEFAULT_EXTERIOR_VARIANT }) {
     // (exteriorLayout.js): dissolving into Factory Interior 1 at the start,
     // with its B4 around that room, and again at the end, forming around the
     // Final Scene as the camera exits it (sceneTransition.js's
-    // getOutroOpacities), with its B2 around that room. It's invisible for
+    // getOutroOpacities), with its B1 around that room. It's invisible for
     // the whole journey between the two, so it simply moves over then.
     const outro = progress > FINAL_PARK_END;
     const { position, scale } = outro ? EXTERIOR_OUTRO_PLACEMENT : EXTERIOR_ENTRY_PLACEMENT;

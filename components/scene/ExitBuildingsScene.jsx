@@ -99,8 +99,8 @@ const BUILDINGS = [
   {
     // Factory 3 (there's no interior model for it), the building AMR50
     // tows the AMR50 trolley across to, shown as B2. Its placement is in
-    // amr50Paths.js (FACTORY3_B2), beside AMR50's line; the outro sets the
-    // whole campus down with the same transform, so its own B2 lands here.
+    // amr50Paths.js (FACTORY3_B2), beside AMR50's line. (The outro's campus
+    // is set down with its B1 round the room instead, at the same scale.)
     key: "factory3-b2",
     url: "/models/exterior/buildings/B2.glb",
     bboxMin: [-3.08058, 0.00355, -3.26876],
@@ -202,7 +202,7 @@ function FadingBuilding({ building, envMap }) {
   useFrame(() => {
     // None of these are part of the campus the outro returns to: they all
     // dissolve away as it forms (Factory 3's B2 is already hidden inside the
-    // Final Scene by then, and the campus brings its own).
+    // Final Scene by then, and the campus brings its own B1 round the room).
     const progress = scrollStore.progress;
     const opacity = building.getOpacity(progress) * getOutroOpacities(progress).others;
     scene.visible = opacity > 0.001;
