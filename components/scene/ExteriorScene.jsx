@@ -13,6 +13,7 @@ import {
 import { FINAL_PARK_END } from "@/lib/timeline";
 import { applyModelViewerLook, createModelViewerEnvMap } from "@/lib/modelViewerEnvironment";
 import { getIntroStep, startIntro } from "@/lib/introStore";
+import { addDepthPrepass } from "@/lib/fadeDepth";
 
 // The campus fades in over the start of the load-in camera sweep
 // (introStore.js), which kicks off once this has loaded.
@@ -52,6 +53,11 @@ export const DEFAULT_EXTERIOR_VARIANT = "dark";
 const EXTERIOR_RENDER_ORDER = 2;
 const FADE_POLYGON_OFFSET = -1;
 
+// Without depth writes the campus can't hide its own far side (inner walls,
+// roof undersides, the road under a roof) while it fades, so it gets a depth
+// pre-pass just before its colour — see lib/fadeDepth.js.
+const PREPASS_RENDER_ORDER = EXTERIOR_RENDER_ORDER - 0.05;
+
 // Loads the chosen variant with its own material clones (opacity is
 // animated per frame on these, not on the glTF cache's shared originals).
 function useFadingExterior(url, envMap) {
@@ -78,7 +84,16 @@ function useFadingExterior(url, envMap) {
     materials.current = mats;
   }, [scene, envMap]);
 
-  return { scene, materials };
+  const prepass = useRef(null);
+  useEffect(() => {
+    prepass.current = addDepthPrepass(scene, { renderOrder: PREPASS_RENDER_ORDER });
+    return () => {
+      prepass.current.dispose();
+      prepass.current = null;
+    };
+  }, [scene]);
+
+  return { scene, materials, prepass };
 }
 
 export default function ExteriorScene({ variant = DEFAULT_EXTERIOR_VARIANT }) {
@@ -113,13 +128,14 @@ export default function ExteriorScene({ variant = DEFAULT_EXTERIOR_VARIANT }) {
       (outro ? getOutroOpacities(progress).exterior : getFadeOpacities(progress).exterior) *
       getIntroStep(0, INTRO_FADE_IN);
     const fading = opacity < 0.999;
-    for (const { scene, materials } of [exterior]) {
+    for (const { scene, materials, prepass } of [exterior]) {
       scene.visible = opacity > 0.001;
       for (const mat of materials.current) {
         mat.opacity = opacity;
         mat.depthWrite = !fading;
         mat.polygonOffset = fading;
       }
+      prepass.current?.update(fading);
     }
   });
 

@@ -52,7 +52,8 @@ export default function Experience() {
           // old ACES-era intensities here clipped the already-light
           // ~0.63 base color straight to white in well-lit areas, which
           // read as "still grey" even with tone mapping disabled.
-          gl={{ toneMapping: THREE.NoToneMapping }}
+          // stencil: fading buildings skip AMR10/AMR50's pixels (lib/fadeDepth.js).
+          gl={{ toneMapping: THREE.NoToneMapping, stencil: true }}
         >
           {/* Tried adding drei's <Environment preset="city"> here for extra
               richness, but it fetches an HDR file from an external CDN and

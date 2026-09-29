@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useModel } from "@/lib/loaders";
+import { addStencilMask } from "@/lib/fadeDepth";
 import { scrollStore } from "@/lib/scrollStore";
 import { getExitT } from "@/lib/vehiclePaths";
 import {
@@ -121,6 +122,19 @@ export default function NextFactoryScene() {
     amr50Materials.current = collect([amr50, amr50Trolley], 3);
   }, [scene, amr50, amr50Trolley]);
 
+  // ...and marks its pixels so a fading building skips them (lib/fadeDepth.js).
+  const amr50Masks = useRef([]);
+  const amr50WasSolid = useRef(true);
+  useEffect(() => {
+    amr50Masks.current = [amr50, amr50Trolley].map((root) =>
+      addStencilMask(root, { renderOrder: 1.9 })
+    );
+    return () => {
+      for (const mask of amr50Masks.current) mask.dispose();
+      amr50Masks.current = [];
+    };
+  }, [amr50, amr50Trolley]);
+
   useFrame((_state, delta) => {
     const progress = scrollStore.progress;
     // getExitT already clamps to 0 at/before TOP_VIEW_END and 1 at/after
@@ -143,6 +157,19 @@ export default function NextFactoryScene() {
     for (const mat of amr50Materials.current) {
       mat.opacity = amr50Opacity;
     }
+    // Drawn over the buildings (unveiled, masked) only while fully opaque;
+    // while fading it's drawn with the room and veiled like it (see
+    // Interior1Scene's AMR10 for why).
+    const amr50Solid = amr50Opacity > 0.999;
+    if (amr50Solid !== amr50WasSolid.current) {
+      amr50WasSolid.current = amr50Solid;
+      for (const root of [amr50, amr50Trolley]) {
+        root.traverse((obj) => {
+          if (obj.isMesh && !obj.userData.fadeTwin) obj.renderOrder = amr50Solid ? 3 : 0;
+        });
+      }
+    }
+    for (const mask of amr50Masks.current) mask.update(amr50Solid);
 
     if (amr50Rig.current && amr50TrolleyRig.current) {
       amr50Progress.current =

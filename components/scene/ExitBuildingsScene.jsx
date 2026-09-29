@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useModel } from "@/lib/loaders";
+import { addDepthPrepass } from "@/lib/fadeDepth";
 import { scrollStore } from "@/lib/scrollStore";
 import {
   getExitExteriorAmount,
@@ -184,7 +185,10 @@ function FadingBuilding({ building, envMap }) {
   // from their geometry (their site-plan offset is baked into the vertices).
   // And while partly transparent it mustn't write depth (see useFrame), or
   // the moment it became even faintly visible its walls would cut the room
-  // out behind them — a sudden swap instead of a dissolve.
+  // out behind them — a sudden swap instead of a dissolve. It can't hide its
+  // own far side without depth either, so while fading it gets a depth
+  // pre-pass, skipping AMR10/AMR50's pixels so they stay unveiled (see
+  // lib/fadeDepth.js).
   useEffect(() => {
     const mats = [];
     scene.traverse((obj) => {
@@ -199,6 +203,15 @@ function FadingBuilding({ building, envMap }) {
     materials.current = mats;
   }, [scene, envMap]);
 
+  const prepass = useRef(null);
+  useEffect(() => {
+    prepass.current = addDepthPrepass(scene, { renderOrder: 1.95, maskVehicles: true });
+    return () => {
+      prepass.current.dispose();
+      prepass.current = null;
+    };
+  }, [scene]);
+
   useFrame(() => {
     // None of these are part of the campus the outro returns to: they all
     // dissolve away as it forms (Factory 3's B2 is already hidden inside the
@@ -211,6 +224,7 @@ function FadingBuilding({ building, envMap }) {
       mat.opacity = opacity;
       mat.depthWrite = solid;
     }
+    prepass.current?.update(!solid);
   });
 
   return (

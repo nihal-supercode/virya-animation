@@ -3,8 +3,8 @@
 import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useModel } from "@/lib/loaders";
+import { addStencilMask } from "@/lib/fadeDepth";
 import AmrRadar from "./AmrRadar";
-import { getAmr50Rig } from "@/lib/amr50Paths";
 import { scrollStore } from "@/lib/scrollStore";
 import { FADE_END, TOP_VIEW_END, SCROLL_LENGTH_VH } from "@/lib/timeline";
 import {
@@ -55,8 +55,9 @@ function negate(v) {
   return [-v[0], -v[1], -v[2]];
 }
 
-// AMR10's radar: fades in with Factory Interior 1, and hands over to AMR50's
-// — fading out exactly as AMR50's fades in, once AMR50 activates.
+// AMR10's radar: fades in with Factory Interior 1 and stays on with AMR10 —
+// including while AMR50's comes on and AMR50 sets off beside it — fading
+// only with AMR10 itself (amr10Opacity in the frame loop).
 // AMR10 waits outside the room, behind its near wall (vehiclePaths.js's
 // AMR10_START) — between the camera and the room as the camera closes in on
 // B4 — so it stays hidden until the room has fully replaced B4 (FADE_END),
@@ -73,7 +74,7 @@ function amr10Visibility(progress) {
 }
 
 function amr10RadarOpacity(progress) {
-  return amr10Visibility(progress) * (1 - getAmr50Rig(progress).radar);
+  return amr10Visibility(progress) * roomVisibility(getFactory2ExteriorAmount(progress));
 }
 
 // How quickly the rendered vehicle position catches up to its true
@@ -129,6 +130,19 @@ export default function Interior1Scene() {
   const amr10Body = useFadingModel(AMR10_BODY_MODEL_URL);
   const amr10Trolley = useFadingModel(AMR10_TROLLEY_MODEL_URL);
 
+  // AMR10 marks its pixels so a fading B4/B5 skips them and never veils it
+  // (lib/fadeDepth.js) — drawn just before the buildings' depth pre-pass.
+  const amr10Masks = useRef([]);
+  useEffect(() => {
+    amr10Masks.current = [amr10Body.scene, amr10Trolley.scene].map((root) =>
+      addStencilMask(root, { renderOrder: 1.9 })
+    );
+    return () => {
+      for (const mask of amr10Masks.current) mask.dispose();
+      amr10Masks.current = [];
+    };
+  }, [amr10Body.scene, amr10Trolley.scene]);
+
   // Refs to the outer per-vehicle group (the one carrying the re-centered
   // model) — position/rotation are driven imperatively every frame from
   // lib/vehiclePaths.js rather than through React state, matching
@@ -167,7 +181,12 @@ export default function Interior1Scene() {
     // AMR50's crossing to Factory 3 — B5's solid block doesn't reach the
     // trolley area, so otherwise they'd be left standing outside it.
     const amr10Opacity = amr10Visibility(progress) * roomVisibility(getFactory2ExteriorAmount(progress));
-    const amr10Order = progress > TOP_VIEW_END ? AMR10_RENDER_ORDER : 0;
+    // Drawn over the buildings (unveiled) only while fully opaque; while it's
+    // fading with Factory 2 it's part of the room, so it's drawn with it and
+    // veiled by B5 the same way — drawn after, B5's depth pre-pass
+    // (lib/fadeDepth.js) would hide it outright.
+    const amr10Order =
+      progress > TOP_VIEW_END && amr10Opacity > 0.999 ? AMR10_RENDER_ORDER : 0;
     for (const mesh of [...amr10Body.meshes.current, ...amr10Trolley.meshes.current]) {
       mesh.renderOrder = amr10Order;
     }
@@ -182,6 +201,10 @@ export default function Interior1Scene() {
         mat.opacity = opacity;
       }
     }
+    // Only while it's drawn over the buildings (so fully opaque) — a fading
+    // AMR10 would cut its outline out of the building around it.
+    const maskAmr10 = amr10Order === AMR10_RENDER_ORDER;
+    for (const mask of amr10Masks.current) mask.update(maskAmr10);
 
     // Vehicle choreography (AMR10 <-> Forklift crossing, see
     // lib/vehiclePaths.js for the full timing/behavior) — plays out during
